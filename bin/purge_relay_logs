@@ -40,6 +40,7 @@ GetOptions(
     relay_log_info=s
     user=s
     password=s
+    askpass
     host=s
     port=i
     socket=s
@@ -70,7 +71,36 @@ if ( $opt{version} ) {
   exit 0;
 }
 
+if ( $opt{askpass} ) {
+  $opt{password} = noecho_password("Enter password ");
+}
+
 exit &main();
+
+# Prompt for password when connecting to MySQL
+sub noecho_password {
+  my $prompt = shift;
+  local $OUTPUT_AUTOFLUSH = 1;
+  my $response;
+  eval {
+    require Term::ReadKey;
+    Term::ReadKey->import(qw( ReadMode ReadKey ));
+    if ($OSNAME =~ m/MSWin/) {
+      require Win32::Console::ANSI;
+    }
+    print "$prompt: ";
+    ReadMode('noecho');
+    $response = <STDIN>;
+    chomp($response);
+    ReadMode('normal');
+    print "\n" or die 
+        "Cannot print: $OS_ERROR";
+  };
+  if ($EVAL_ERROR) {
+    die "Cannot read respose; is Term::ReadKey installed? $EVAL_ERROR";
+  }
+  return $response;
+}
 
 sub open_relay_logs() {
   my $relay_dir = $_binlog_manager->{dir};
@@ -142,7 +172,7 @@ sub check_local {
   my @ifconfig_result = `/sbin/ifconfig -a`;
   my %addrs;
   for (@ifconfig_result) {
-    if (/\s*inet addr:([\d.]+)/) {
+    if (m/\s*inet (?:addr:|)([\d.]+)/) {
       $addrs{$1} = 1;
     }
   }
@@ -228,7 +258,7 @@ sub main {
       $current_relay_log = $_binlog_manager->{cur_log};
     }
 
-    if ( $opt{use_hard_link} ) {
+    if ( $opt{use_hardlink} ) {
       remove_hardlinked_relay_logs();
       croak if ( hardlink_relay_logs($current_relay_log) );
     }
@@ -247,7 +277,7 @@ sub main {
     print " ok.\n";
 
     MHA::SlaveUtil::release_failover_advisory_lock($dbh);
-    if ( $opt{use_hard_link} ) {
+    if ( $opt{use_hardlink} ) {
       remove_hardlinked_relay_logs();
     }
     my $end = MHA::NodeUtil::current_time();
